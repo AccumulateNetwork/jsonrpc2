@@ -30,7 +30,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/AdamSLevy/jsonrpc2/v14"
+	"github.com/AccumulateNetwork/jsonrpc2/v15"
 )
 
 var endpoint = "http://localhost:18888"

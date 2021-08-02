@@ -1,4 +1,4 @@
-module github.com/AdamSLevy/jsonrpc2/v14
+module github.com/AccumulateNetwork/jsonrpc2/v15
 
 go 1.13
 
