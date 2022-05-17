@@ -161,3 +161,14 @@ func errorInvalidRequest(data interface{}) Error {
 func errorMethodNotFound(data interface{}) Error {
 	return NewError(ErrorCodeMethodNotFound, ErrorMessageMethodNotFound, data)
 }
+
+type BatchError []Error
+
+func (e BatchError) Error() string {
+	s := "[\n"
+	for _, e := range e {
+		s += e.Error() + ",\n"
+	}
+	s += "]"
+	return s
+}

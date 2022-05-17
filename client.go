@@ -30,6 +30,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"reflect"
 )
 
 // Logger allows custom log types to be used with the Client when
@@ -109,14 +110,23 @@ func (c *Client) Request(ctx context.Context, url, method string,
 	reqID := rand.Int()%5000 + 1
 
 	// Marshal the JSON RPC Request.
-	req := Request{ID: reqID, Method: method, Params: params}
+	var req interface{}
+	var batch bool
+	switch v := params.(type) {
+	case Request:
+		req = v
+	case BatchRequest:
+		req, batch = v, true
+	default:
+		req = Request{ID: reqID, Method: method, Params: params}
+	}
 	if c.DebugRequest {
 		if c.Log == nil {
 			c.Log = log.New(os.Stderr, "", 0)
 		}
 		c.Log.Println(req)
 	}
-	reqData, err := req.MarshalJSON()
+	reqData, err := json.Marshal(req)
 	if err != nil {
 		return err
 	}
@@ -154,16 +164,50 @@ func (c *Client) Request(ctx context.Context, url, method string,
 		fmt.Println()
 	}
 
-	// Unmarshal the HTTP response into a JSON RPC response.
-	var resID int
-	res := Response{Result: result, ID: &resID}
-	if err := json.Unmarshal(body, &res); err != nil {
+	if !batch {
+		// Unmarshal the HTTP response into a JSON RPC response.
+		var resID int
+		res := Response{Result: result, ID: &resID}
+		if err := json.Unmarshal(body, &res); err != nil {
+			return newErrorUnexpectedHTTPResponse(err, body, httpRes)
+		}
+
+		if res.HasError() {
+			return res.Error
+		}
+
+		return nil
+	}
+
+	var rawResp []json.RawMessage
+	err = json.Unmarshal(body, &rawResp)
+	if err != nil {
 		return newErrorUnexpectedHTTPResponse(err, body, httpRes)
 	}
 
-	if res.HasError() {
-		return res.Error
+	rv := reflect.ValueOf(result)
+	if rv.Kind() != reflect.Ptr || rv.Type().Elem().Kind() != reflect.Slice {
+		panic("when sending a batch the result must be a pointer to a slice")
+	}
+	responses := reflect.MakeSlice(rv.Type().Elem(), len(rawResp), len(rawResp))
+	rv.Elem().Set(responses)
+
+	var errs BatchError
+	for i, raw := range rawResp {
+		var resID int
+		result := responses.Index(i).Addr().Interface()
+		res := Response{Result: result, ID: &resID}
+		if err := json.Unmarshal(raw, &res); err != nil {
+			return newErrorUnexpectedHTTPResponse(err, body, httpRes)
+		}
+
+		if res.HasError() {
+			errs = append(errs, res.Error)
+		}
 	}
 
+	if len(errs) > 0 {
+		return errs
+	}
 	return nil
 }
